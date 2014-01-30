@@ -1,0 +1,189 @@
+/*Programa para reproducir una melodia en Arduino UNO - Jose Guillermo Quintanilla Paredes
+
+Inspirado en el original de 
+http://arduino.cc/es_old/Tutoriales/TocaMelodia pero reescrito y corregido.
+Sin control de volumen por el momento.
+
+Arreglado problema con la duracion de los silencios respecto al original.
+Melodia incluida: Marcha Imperial de Star Wars
+*/
+
+#include <Arduino.h>
+// Defino una nota especial para representar silencio.
+#define  silencio     0
+//Defino las duraciones posibles de las notas, incluidas las de con puntillo. El valor elegido para la negra, 48, es para poder conseguir tresillos de valor entero, 48/3=16.
+#define redondap     288
+#define redonda      192
+#define blancap      144
+#define blanca       96
+#define negrap       72
+#define negra        48
+#define corcheap     36
+#define corchea      24
+#define semicorcheap 18
+#define tresillo     16
+#define semicorchea  12
+#define fusap        9
+#define fusa         6
+#define semifusa     3
+// Defino variables importantes
+int PinAltavoz = 9; // Pin donde conecto el altavoz. Debe ser capaz de sacar una señal PWM, asi que en el Arduino Nano por ejemplo debe ser uno de estos: 3, 5, 6, 9, 10 o 11.
+int DEBUG = 0; // Activar salida serial (1) o no (0)
+int tempo = 100; // Negras por minuto
+float frecuenciaError = 80; // Frecuencia grave en Hz que utilizo como sonido de error.
+enum notas{ Do=0, DoS=1, Re=2, ReS=3, Mi=4, Fa=5, FaS=6, Sol=7, SolS=8, La=9, LaS=10, Si=11 }; // Enumeracion para poder llamar a las notas de las escalas o1[Re], o2[La], etc.
+
+float o1[12] = { 0 };  // Inicializo los vectores de las 4 octavas.
+float o2[12] = { 0 };
+float o3[12] = { 0 };
+float o4[12] = { 0 };
+notas j;
+
+inline                          // Para poder utilizar los operadores ++ y -- en el tipo de dato notas.
+notas &operator++(notas &d)
+{
+  return d = notas(d + 1);
+}
+
+inline
+notas &operator--(notas &d)
+{
+  return d = notas(d - 1);
+}
+  
+void setup()
+{
+  pinMode(PinAltavoz, OUTPUT); // Configuro el pin digital elegido como salida.
+  if (DEBUG)                   // Si he activado el debug serial, este comando activa la consola serial. 
+    Serial.begin(9600);
+    
+  o3[La] = 446;                        // Referencia en Hz para el La central. He comprobado que para escuchar un tono de 440 Hz exactos, debo definirlo como 446...
+  
+  for(j=LaS; j<=Si; ++j)               // Creo las escalas en Hz con la formula apropiada para la afinacion por temperamento igual. Para aumentar/disminuir un semitono, multiplico/divido
+  {                                    // por la raiz doceava de 2.
+    o3[j] = o3[La]*pow(2.0,notas(j-La)/12.0);
+  }
+  for(j=SolS; j>=Do; --j)
+  {
+    o3[j] = o3[La]/pow(2.0,notas(La-j)/12.0);
+  }
+  for(j=Si; j>=Do; --j)
+  {
+    o2[j] = o3[Do]/pow(2.0,(12-j)/12.0);
+  }
+  for(j=Si; j>=Do; --j)
+  {
+    o1[j] = o2[Do]/pow(2.0,(12-j)/12.0);
+  }
+  for(j=Do; j<=Si; ++j)
+  {
+    o4[j] = o3[Si]*pow(2.0,(j+1)/12.0);
+  }
+}
+
+int periodo(float frecuencia)
+{
+  int T = (int)((1/frecuencia)*1000000); //Periodo de la nota en microsegundos (redondeado)
+  return T;
+}
+
+unsigned long duracion(int beat)                // Devuelve la duracion en microsegundos de una nota a partir de si es negra, corchea, etc y del tempo marcado.
+{                                               // He tenido que hacer algun apaño raro para conseguir que el tempo pudiera ser puesto arriba en negras por minuto.
+  unsigned long dur = (45000*negra*beat)/tempo;
+  dur = (dur*1000)/1728;
+  return dur;
+}
+
+void loop()
+{
+  // Vector melody: Notas de la cancion. Las octavas son o1, o2 o3 y o4, y para acceder a una nota de cada una se hace: o1[Do], o2[LaS], etc. Ahora: Marcha Imperial de Star Wars
+  static float melody[] = { o2[Sol], silencio, o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[FaS], o2[FaS], o2[FaS], o2[FaS], 
+                    o2[Sol], silencio, o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[Sol], o2[FaS], o2[FaS], o2[FaS], o2[FaS],//Hasta aqui la intro
+                    o3[Sol], silencio, o3[Sol], silencio, o3[Sol], silencio, o3[ReS], o3[LaS], o3[Sol], silencio, o3[ReS], o3[LaS], o3[Sol], silencio, 
+                    o4[Re], silencio, o4[Re], silencio, o4[Re], silencio, o4[ReS], o3[LaS], o3[FaS], silencio, o3[ReS], o3[LaS], o3[Sol], silencio,// Final primera parte
+                    o4[Sol], silencio, o3[Sol], o3[Sol], o4[Sol], silencio, o4[FaS], o4[Fa], o4[Mi], o4[ReS], o4[Mi], silencio, o3[SolS], 
+                    o4[DoS], o4[Do], o3[Si], o3[LaS], o3[La], o3[LaS], silencio, o3[ReS], o3[FaS], o3[ReS], o3[Sol], o3[LaS], o3[Sol], o3[LaS], 
+                    o4[Re], silencio, o4[Sol], silencio, o3[Sol], o3[Sol], o4[Sol], silencio, o4[FaS], o4[Fa], o4[Mi], o4[ReS], o4[Mi], silencio, 
+                    o3[SolS], o4[DoS], o4[Do], o3[Si], o3[LaS], o3[La], o3[LaS], silencio, o3[ReS], o3[FaS], o3[ReS], o3[LaS], o3[Sol], o3[ReS], 
+                    o3[LaS], o3[Sol], silencio };
+  // Vector beats: Ritmo de la cancion.
+  static int beats[] = { corchea, corchea, corchea, fusap, fusap, fusap, corchea, fusap, fusap, fusap, fusap, fusap, fusap, corchea, 
+                  corchea, corchea, corchea, fusap, fusap, fusap, corchea, fusap, fusap, fusap, fusap, fusap, fusap, corchea, //Hasta aqui la intro
+                  corchea, corchea, corchea, corchea, corchea, corchea, corcheap, semicorchea, corchea, corchea, corcheap, semicorchea, negra, negra, 
+                  corchea, corchea, corchea, corchea, corchea, corchea, corcheap, semicorchea, corchea, corchea, corcheap, semicorchea, negra, negra, // Final primera parte
+                  corchea, corchea, corcheap, semicorchea, corchea, corchea, corcheap, semicorchea, semicorchea, semicorchea, corchea, corchea, corchea, 
+                  negra, corcheap, semicorchea, semicorchea, semicorchea, corchea, corchea, corchea, negra, corcheap, semicorchea, negra, corcheap, semicorchea, 
+                  negra, negra, corchea, corchea, corcheap, semicorchea, corchea, corchea, corcheap, semicorchea, semicorchea, semicorchea, corchea, corchea, corchea, negra, corcheap, 
+                  semicorchea, semicorchea, semicorchea, corchea, corchea, corchea, negra, corcheap, semicorchea, negra, corcheap, semicorchea, blanca, blanca};
+  
+  // Tamaño de la melodia, para comparar luego con el de ritmos y comprobar que son iguales:                
+  static int duracioncancion = sizeof(melody)/sizeof(float); 
+  
+  
+  unsigned long time = 0;  
+  int periodoError = 0;
+  int i = 0; int T = 0; unsigned long duracionnota = 0; int s = 1;
+  if(duracioncancion != (sizeof(beats)/sizeof(int))) // Compruebo que tenga la misma cantidad de notas que de duraciones de nota. Si no, deberia dar error.
+  {
+    periodoError = periodo(frecuenciaError);
+    if(DEBUG)
+      Serial.print("Error: La cantidad de notas y de duraciones no es la misma. Cancelando programa.");
+    for(i=0;i<32766;i++)
+    {
+      digitalWrite(PinAltavoz,HIGH);       // Empieza a sonar el sonido de error a la frecuencia determinada arriba. Suena un rato.
+      delayMicroseconds(periodoError/2);   
+      digitalWrite(PinAltavoz,LOW);
+      delayMicroseconds(periodoError/2);
+    }     
+  }
+  for(i=0; i<duracioncancion; i++)
+  {
+    if(melody[i] != 0)
+    {
+      T = periodo(melody[i]);
+      duracionnota = duracion(beats[i]); // Duracion en microsegundos de cada nota, que depende de si es negra, corchea, etc. y del tempo. Lo calculo en la funcion duracion().                                                 
+      time = micros(); // En la variable time almaceno el tiempo en microsegundos desde el inicio del programa. 
+      if(DEBUG)
+      {
+        s=1;
+        Serial.print(time);Serial.print("microsegundos desde el arranque. \n");
+        Serial.print(i); Serial.print(": Nota de "); Serial.print(duracionnota); Serial.print(" microsegundos de frecuencia "); Serial.print(melody[i]); Serial.print(" Hz\n");
+      }
+      while((micros() - time) < duracionnota)   // Compruebo la diferencia entre el tiempo en microsegundos desde el inicio del programa y el valor almacenado antes en time
+      {                                         // y de esa manera compruebo la duracion de la nota
+        digitalWrite(PinAltavoz,HIGH);       // Para generar un sonido a frecuencia x Hz de periodo T en microsegundos,
+        delayMicroseconds(T/2);              // envio una señal periodica PWM de duracion (cada pulso) la mitad del periodo.
+        digitalWrite(PinAltavoz,LOW);
+        delayMicroseconds(T/2);
+        if(DEBUG)
+        {
+          Serial.print("Ejecucion de while numero "); Serial.print(s); Serial.print("\n");
+          s++;
+        }
+      }
+    }
+    else //Hago toda esta bobada de abajo para que tarde lo mismo en "sonar" un silencio que una nota, ya que los digitalWrite y demas añaden milisegundos.
+    {
+      time = micros();
+      duracionnota = duracion(beats[i]);
+      if(DEBUG)
+      {
+        s=1;
+        Serial.print(time);Serial.print("microsegundos desde el arranque. \n");
+        Serial.print(i); Serial.print(": Nota de "); Serial.print(duracionnota); Serial.print(" microsegundos de frecuencia "); Serial.print(melody[i]); Serial.print(" Hz\n");
+      }
+      while((micros() - time) < duracionnota)
+      {
+        digitalWrite(PinAltavoz,LOW);
+        delayMicroseconds(duracion(beats[i])/2);
+        digitalWrite(PinAltavoz,LOW);
+        delayMicroseconds(duracion(beats[i])/2);
+        if(DEBUG)
+        {
+          Serial.print("Ejecucion de while numero "); Serial.print(s); Serial.print("\n");
+          s++;
+        }
+      }
+    }
+  }
+}
